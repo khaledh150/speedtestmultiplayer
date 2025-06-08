@@ -1,1 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Wonder Kids - Host</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap" rel="stylesheet"/>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <style>
+    html, body { height: 100%; margin: 0; padding: 0; font-family: 'Poppins', sans-serif; background: #f6faff; min-height: 100vh; min-width: 100vw; color: #3a3c51;}
+    body { background: linear-gradient(140deg, #f6faff 0%, #e9f0ff 100%);}
+    .mascot { position: fixed; left: 2vw; bottom: 1vw; width: 120px; z-index: 12; user-select: none; pointer-events: none;}
+    .center-card { background: #fff; border-radius: 30px; box-shadow: 0 12px 64px #e7edfa90; width: 95vw; max-width: 540px; padding: 54px 18px 36px 18px; min-height: 290px; margin: 7vh auto 0 auto; display: flex; flex-direction: column; align-items: center; animation: fadein 0.6s;}
+    @keyframes fadein {from{opacity:0;transform:translateY(35px);} to{opacity:1;transform:translateY(0);}}
+    .big-header { font-size: 2.2rem; font-weight: 900; text-align: center; margin: 2px 0 26px 0; color: #8cbcff; }
+    .group-row-list { width: 100%; display: flex; flex-direction: column; gap: 22px; margin-bottom: 19px;}
+    .group-row { display: flex; align-items: center; background: #f6faff; border-radius: 16px; padding: 17px 19px; box-shadow: 0 2px 8px #d7e6ff24; font-size: 1.18rem; font-weight: 600; color: #1f7dda; justify-content: space-between; min-height: 45px;}
+    .group-label {font-size: 1.17rem; font-weight: 700;}
+    .active-checkbox { width: 23px; height: 23px; accent-color: #88bfff; border-radius: 10px; border: 2px solid #cde; background: #fff; vertical-align: middle; box-shadow: 0 1px 2px #0001; cursor: pointer;}
+    .save-btn { width: 94%; max-width: 295px; padding: 22px 0; border-radius: 100px; background: linear-gradient(100deg, #6dbbfa, #b867ff); color: #fff; font-size: 1.42rem; font-weight: 800; border: none; box-shadow: 0 4px 16px #b9d9ff33; cursor: pointer; margin: 32px 0 8px 0; outline: none; letter-spacing: .01em; transition: background .18s, transform .12s;}
+    .save-btn:active { background: linear-gradient(85deg, #b867ff, #6dbbfa); transform:scale(.97);}
+    .status-msg { color: #0088ff; background: #fff8; font-weight: 600; padding: 8px 0 2px 0; border-radius: 8px; font-size: 1.11rem; min-height: 19px; letter-spacing: .01em; text-align: center; width: 96%; display: none; margin-bottom: 2px; transition: opacity .3s;}
+    .players-section-title { font-weight: 900; font-size:1.4rem; color:#88a7fd; text-align:center; margin-bottom:7px; }
+    .players-group-box { background: #fafdff; border-radius: 18px; box-shadow: 0 2px 20px #e3eaff1c; padding: 19px 14px 18px 14px; margin: 0 0 30px 0; width: 100%; max-width: 420px; min-width: 210px; display: flex; flex-direction: column; align-items: center;}
+    .players-list-table { width: 100%; border-collapse: separate; border-spacing: 0 6px; background: none; margin: 0 auto;}
+    .players-list-table th, .players-list-table td { text-align: center; font-size: 1.09rem; font-weight: 700; padding: 8px 6px; color: #a4c9ff; background: #eaf4ff; border-radius: 10px;}
+    .letsgo-btn { display: block; margin: 38px auto 18px auto; width: 94%; max-width: 400px; font-size: 2.13rem; font-weight: 900; padding: 32px 0 28px 0; border-radius: 44px; border: none; background: linear-gradient(100deg, #6dbbfa, #b867ff); color: #fff; box-shadow: 0 7px 34px #a7e6ff18; cursor: pointer; outline: none; letter-spacing: .01em; transition: background .18s, transform .13s; font-family: 'Poppins', sans-serif; display: flex; align-items: center; justify-content: center; gap: 14px;}
+    .letsgo-btn:active { background: linear-gradient(85deg, #b867ff, #6dbbfa); transform:scale(.97);}
+    .game-header { font-size: 2.1rem; font-weight: 900; color: #8cbcff; text-align: center; margin-bottom: 8px; margin-top: 14px;}
+    .timer-bar { display: flex; align-items: center; justify-content: flex-end; width: 100%; margin-bottom: 2px;}
+    .timer-svg { width: 27px; height: 27px; margin-right: 7px;}
+    .game-timer { font-size: 1.28rem; color: #1a86e5; font-weight: 800; min-width:64px; text-align:left;}
+    .game-settings-row { padding: 17px 12px 12px 12px; width: 98%; max-width: 480px; margin: 0 auto 32px auto; display: flex; flex-direction: row; justify-content: space-around; align-items: center; gap: 13px;}
+    .game-setting-block { text-align: center; font-weight: 700; color: #a4c9ff; font-size: 1.08rem; margin-bottom: 2px; width: 110px; background: #f7faff; border-radius: 12px; padding: 10px 0;}
+    .game-setting-block input, .game-setting-block select { width: 62px; padding: 7px 9px; border-radius: 8px; border: 1.2px solid #c5dbfd; background: #fff; color: #6a97d2; font-size: 1.12rem; font-family: 'Poppins', sans-serif; font-weight: 700; margin: 3px 0 0 0; text-align: center; outline: none;}
+    .start-btn { background: linear-gradient(100deg, #6dbbfa, #b867ff); color: #fff; border: none; border-radius: 50%; width: 148px; height: 148px; font-size: 2.18rem; font-weight: 900; margin: 44px auto 0 auto; display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 42px #a7e6ff22; cursor: pointer; outline: none; letter-spacing: .01em; font-family: 'Poppins', sans-serif; opacity: 1; pointer-events: all; transition: opacity 0.6s;}
+    .game-flash { margin: 14px auto 0 auto; font-size: 6.6vw; color: #218af5; font-weight:900; min-height: 10vw; transition: opacity 0.7s; text-align:center;}
+    .question-index { font-size: 2.1rem; font-weight: 900; margin-top: 6px; margin-bottom: 4px;}
+    .game-question-big { font-size: 2.15rem; color: #0088ff; margin: 6px 0 12px 0; letter-spacing: .07em; font-weight: 900; }
+    .waiting-msg {font-size:1.2rem; color:#999; margin-top:20px;text-align:center;}
+    .lock-btn, .nextq-btn { width: 92%; max-width: 420px; margin: 34px auto 0 auto; background: linear-gradient(100deg, #6dbbfa, #b867ff); color: #fff; font-size: 1.42rem; font-weight: 800; border: none; border-radius: 32px; padding: 18px 0; box-shadow: 0 3px 16px #b9d9ff33; cursor: pointer; outline: none; letter-spacing: .01em; transition: background .18s, transform .12s; display: block;}
+    .lock-btn:active, .nextq-btn:active {background: linear-gradient(80deg, #b867ff, #6dbbfa);transform:scale(.97);}
+    .leaderboard-box { width: 99%; max-width: 475px; margin: 0 auto 0 auto; background: #f7fafd; border-radius: 22px; box-shadow: 0 2px 14px #e3eaff1c; padding: 17px 3vw; margin-top: 7px;}
+    .leaderboard-header { font-size: 2.1rem; font-weight: 900; color: #88a7fd; margin-bottom: 7px; text-align: center;}
+    .leaderboard-table { width: 100%; border-collapse: collapse; margin: 0 auto;}
+    .leaderboard-table th, .leaderboard-table td { text-align: center; font-size: 1.14rem; font-weight: 700; padding: 7px 2px; color: #a4c9ff; border-radius: 7px;}
+    .leaderboard-table th { color:#5e85b3;}
+    .leaderboard-table td.right {color: #1bdb60;}
+    .leaderboard-table td.wrong {color: #ff4460;}
+    .leaderboard-table td.points {font-weight:900;}
+    .question-col { font-weight:900; }
+    @media (max-width: 600px) { .center-card {padding: 26px 3vw 18px 3vw;} .game-header {margin-top:8px;} .start-btn {width:94vw;max-width:170px;height:94vw;max-height:170px;} .game-flash {font-size: 2.6rem;} .leaderboard-box{padding:7px 0;} }
+  </style>
+</head>
+<body>
+  <img class="mascot" src="nadamascot.png" alt="mascot" />
+  <!-- GROUP SELECTION PAGE -->
+  <div class="center-card" id="groupSelectionPage">
+    <div class="big-header">Group Selection</div>
+    <div class="group-row-list" id="roomSelectRows"></div>
+    <input id="hostNickname" maxlength="20" placeholder="Host Nickname" style="margin:14px 0 6px 0;padding:11px 18px;font-size:1.15em;border-radius:15px;border:1.4px solid #b2e6ff;width:93%;">
+    <button class="save-btn" id="saveBtn">Save</button>
+    <div class="status-msg" id="statusMsg"></div>
+  </div>
+  <!-- PLAYERS LOBBY PAGE -->
+  <div class="center-card" id="playersPage" style="display:none;">
+    <div class="big-header" id="playersGroupName"></div>
+    <div class="players-section-title">Players</div>
+    <div class="players-group-box">
+      <table class="players-list-table" id="playersListTable"></table>
+    </div>
+    <div class="game-settings-row" id="gameSettingsRow"></div>
+    <button class="start-btn" id="gameStartBtn">Start</button>
+  </div>
+  <!-- GAME PAGE -->
+  <div class="center-card" id="gamePage" style="display:none;">
+    <div class="game-header" id="gameGroupName"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;width:100%;">
+      <div class="question-index" id="gameQuestionIndex" style="color:#1976d2;">Q1</div>
+      <div class="timer-bar" style="justify-content:flex-end;">
+        <svg class="timer-svg" fill="none" stroke="#58aafc" stroke-width="2.1" viewBox="0 0 32 32"><circle cx="16" cy="16" r="13" stroke="#b4ddff" stroke-width="2.2"/><path d="M16 8v8l6 3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <div class="game-timer" id="gameTimer">0.00s</div>
+      </div>
+    </div>
+    <div class="game-flash" id="gameFlash"></div>
+    <div class="game-question-big" id="gameQuestionBig" style="display:none;"></div>
+    <div id="waitingForPlayer" class="waiting-msg" style="display:none;">Waiting for players…</div>
+    <div class="leaderboard-box" id="leaderboardBox" style="display:none;"></div>
+    <button class="lock-btn" id="lockBtn" style="display:none;">Lock Answers</button>
+    <button class="nextq-btn" id="nextqBtn" style="display:none;">Next Question</button>
+  </div>
+<script>
+const supabase = window.supabase.createClient(
+  'https://numyctclqvikpxffdhzg.supabase.co',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im51bXljdGNscXZpa3B4ZmZkaHpnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDkzNzI0ODUsImV4cCI6MjA2NDk0ODQ4NX0.SkR3jO_Fn9FWYNnTiqLkaV6QKPutKi9ka0hTFO4TV3w'
+);
+
+const roomNames = ['Simple Add. & Sub.','Two Digits','Three Digits','Four Digits'];
+const roomKeys = ['A','B','C','D'];
+let groupKey = null;
+let groupName = null;
+let hostNickname = "";
+let currentGameId = null;
+let settings = { speed: '0.25', flashes: 3, questions: 5 };
+let allQuestions = [];
+let intervalPlayersPoll = null;
+
+function buildGroupSelectionPage() {
+  document.getElementById("groupSelectionPage").style.display = "flex";
+  document.getElementById("playersPage").style.display = "none";
+  document.getElementById("gamePage").style.display = "none";
+  const rowsDiv = document.getElementById('roomSelectRows');
+  rowsDiv.innerHTML = "";
+  roomNames.forEach((roomName, idx) => {
+    let row = document.createElement("div");
+    row.className = "group-row";
+    row.innerHTML = `<span class="group-label">${roomName}</span>
+      <input type="radio" name="activeRoom" class="active-checkbox" id="roomActive${idx}" value="${idx}">
+    `;
+    rowsDiv.appendChild(row);
+  });
+}
+buildGroupSelectionPage();
+
+document.getElementById("saveBtn").onclick = async ()=>{
+  let idx = Array.from(document.querySelectorAll(".active-checkbox")).findIndex(cb => cb.checked);
+  hostNickname = document.getElementById("hostNickname").value.trim();
+  if(idx === -1 || !hostNickname) {
+    let status = document.getElementById("statusMsg");
+    status.innerText = "Select a group and enter host nickname.";
+    status.style.display = "block";
+    setTimeout(()=>{status.style.display="none";},1800);
+    return;
+  }
+  groupKey = roomKeys[idx];
+  groupName = roomNames[idx];
+  // Create new game in Supabase
+  const { data, error } = await supabase.from('games').insert([
+    { group_name: groupName, status: 'lobby', host_nickname: hostNickname }
+  ]).select().single();
+  if(error) {
+    alert("Error creating game: " + error.message);
+    return;
+  }
+  currentGameId = data.id;
+  buildPlayersPage();
+  if(intervalPlayersPoll) clearInterval(intervalPlayersPoll);
+  intervalPlayersPoll = setInterval(loadPlayers, 1500);
+};
+
+async function loadPlayers() {
+  if(!currentGameId) return;
+  const { data, error } = await supabase.from('players').select().eq('game_id', currentGameId);
+  let tbl = document.getElementById("playersListTable");
+  tbl.innerHTML = `<tr><th>No.</th><th>Nickname</th><th>Status</th></tr>`;
+  if(data && Array.isArray(data)) {
+    data.forEach((p,i) => {
+      let row = document.createElement("tr");
+      row.innerHTML = `<td>${i+1}</td><td>${p.nickname}</td><td>${p.status||'-'}</td>`;
+      tbl.appendChild(row);
+    });
+  }
+}
+
+function buildPlayersPage() {
+  document.getElementById("groupSelectionPage").style.display = "none";
+  document.getElementById("playersPage").style.display = "flex";
+  document.getElementById("gamePage").style.display = "none";
+  document.getElementById("playersGroupName").innerText = groupName;
+  document.getElementById("gameSettingsRow").innerHTML = `
+    <div class="game-setting-block">Time (s)
+      <select id="gameSpeed">${[...Array(20)].map((_,i)=>((i+1)*0.25).toFixed(2)).map(s=>`<option value="${s}"${s===settings.speed?' selected':''}>${s}</option>`).join('')}</select>
+    </div>
+    <div class="game-setting-block">Numbers in Question
+      <input id="gameFlashes" type="number" min="1" max="20" value="${settings.flashes}">
+    </div>
+    <div class="game-setting-block">Questions Per Round
+      <input id="gameQuestions" type="number" min="1" max="100" value="${settings.questions}">
+    </div>
+  `;
+  document.getElementById("gameSpeed").onchange = (e)=>{ settings.speed = e.target.value; };
+  document.getElementById("gameFlashes").oninput = (e)=>{ settings.flashes = Math.max(1, Math.min(20, Number(e.target.value))); };
+  document.getElementById("gameQuestions").oninput = (e)=>{ settings.questions = Math.max(1, Math.min(100, Number(e.target.value))); };
+  loadPlayers();
+}
+
+document.getElementById("gameStartBtn").onclick = async ()=>{
+  if(!currentGameId) return;
+  allQuestions = generateQuestionsForGroup(groupKey, Number(settings.flashes), Number(settings.questions));
+  // Insert questions to Supabase
+  let questionsForDB = allQuestions.map((q,i)=>({
+    game_id: currentGameId,
+    question_no: i+1,
+    question_text: q.display,
+    tokens: JSON.stringify(q.tokens),
+    answer: q.ans
+  }));
+  const { error } = await supabase.from('questions').insert(questionsForDB);
+  if(error) { alert("Failed to insert questions: " + error.message); return; }
+  // Update game status to 'playing'
+  await supabase.from('games').update({ status: 'playing' }).eq('id', currentGameId);
+  buildGamePage();
+  // TODO: Implement game flow for Q1 (step, timer, flashing, etc) in DB for player.html to poll
+  // This is just the first step. Next: you will set/update a "game_state" table for sync.
+};
+
+function buildGamePage() {
+  document.getElementById("groupSelectionPage").style.display = "none";
+  document.getElementById("playersPage").style.display = "none";
+  document.getElementById("gamePage").style.display = "flex";
+  document.getElementById("gameGroupName").innerText = groupName;
+  document.getElementById("gameQuestionIndex").innerText = `Q1`;
+  document.getElementById("gameTimer").innerText = "0.00s";
+  document.getElementById("gameFlash").innerText = "";
+  document.getElementById("gameFlash").style.display = "";
+  document.getElementById("gameQuestionBig").style.display = "none";
+  document.getElementById("leaderboardBox").style.display = "none";
+  document.getElementById("lockBtn").style.display = "none";
+  document.getElementById("nextqBtn").style.display = "none";
+}
+
+function generateQuestionsForGroup(idx, flashes, count) {
+  let arr = [];
+  let groupIdx = roomKeys.indexOf(idx); // idx is A/B/C/D
+  for(let i=0;i<count;i++){
+    let tokens=[], display="", ans=0;
+    if(groupIdx===0){ let q = randomChapter17(flashes)[0]; tokens = parseQuestionTokens(q.q); display = q.q; ans = q.a; }
+    else if(groupIdx===1){ let q = randomChapter18(flashes)[0]; tokens = parseQuestionTokens(q.q); display = q.q; ans = q.a; }
+    else if(groupIdx===2){ let q = randomChapter19(flashes)[0]; tokens = parseQuestionTokens(q.q); display = q.q; ans = q.a; }
+    else if(groupIdx===3){ let q = randomChapter20(flashes)[0]; tokens = parseQuestionTokens(q.q); display = q.q; ans = q.a; }
+    arr.push({tokens, display, ans});
+  }
+  return arr;
+}
+function parseQuestionTokens(qstr) {
+  let parts = qstr.replace(/\s+/g,'').replace(/([+-])/g,' $1').trim().split(' ');
+  let tokens = [parts[0]];
+  for(let i=1;i<parts.length;i++) tokens.push(parts[i]);
+  return tokens;
+}
+function randomChapter17(numQuestions=1) {
+  const questions=[];let attempts=0,ops=["+","-"];
+  while(questions.length<numQuestions&&attempts<3000){
+    attempts++;const A=Math.floor(Math.random()*9)+1,B=Math.floor(Math.random()*9)+1,C=Math.floor(Math.random()*9)+1;
+    const op1=ops[Math.floor(Math.random()*2)],op2=ops[Math.floor(Math.random()*2)];
+    if(op1==="-"&&A<B)continue;let step1=op1==="+"?A+B:A-B;if(op2==="-"&&step1<C)continue;
+    let D=op2==="+"?step1+C:step1-C;if(D>=0&&D<=9){questions.push({q:`${A} ${op1} ${B} ${op2} ${C}`,a:D.toString()});}
+  }return questions;
+}
+function randomChapter18(numQuestions=1) {
+  const questions=[];let attempts=0,ops=["+","-"];
+  while(questions.length<numQuestions&&attempts<3000){
+    attempts++;const A=Math.floor(Math.random()*59)+1,B=Math.floor(Math.random()*59)+1,C=Math.floor(Math.random()*59)+1;
+    const op1=ops[Math.floor(Math.random()*2)],op2=ops[Math.floor(Math.random()*2)];
+    if(op1==="-"&&A<B)continue;let step1=op1==="+"?A+B:A-B;if(op2==="-"&&step1<C)continue;
+    let D=op2==="+"?step1+C:step1-C;if(D>=10&&D<=99){questions.push({q:`${A} ${op1} ${B} ${op2} ${C}`,a:D.toString()});}
+  }return questions;
+}
+function randomChapter19(numQuestions=1) {
+  const questions=[];let attempts=0,ops=["+","-"];
+  while(questions.length<numQuestions&&attempts<3000){
+    attempts++;const A=Math.floor(Math.random()*99)+1,B=Math.floor(Math.random()*99)+1,C=Math.floor(Math.random()*99)+1;
+    const op1=ops[Math.floor(Math.random()*2)],op2=ops[Math.floor(Math.random()*2)];
+    if(op1==="-"&&A<B)continue;let step1=op1==="+"?A+B:A-B;if(op2==="-"&&step1<C)continue;
+    let D=op2==="+"?step1+C:step1-C;if(D>=100&&D<=999){questions.push({q:`${A} ${op1} ${B} ${op2} ${C}`,a:D.toString()});}
+  }return questions;
+}
+function randomChapter20(numQuestions=1) {
+  const questions=[];let attempts=0,ops=["+","-"];
+  while(questions.length<numQuestions&&attempts<4000){
+    attempts++;const A=Math.floor(Math.random()*999)+1,B=Math.floor(Math.random()*999)+1,C=Math.floor(Math.random()*999)+1;
+    const op1=ops[Math.floor(Math.random()*2)],op2=ops[Math.floor(Math.random()*2)];
+    if(op1==="-"&&A<B)continue;let step1=op1==="+"?A+B:A-B;if(op2==="-"&&step1<C)continue;
+    let D=op2==="+"?step1+C:step1-C;if(D>=1000&&D<=9999){questions.push({q:`${A} ${op1} ${B} ${op2} ${C}`,a:D.toString()});}
+  }return questions;
+}
+</script>
+</body>
+</html>
 
