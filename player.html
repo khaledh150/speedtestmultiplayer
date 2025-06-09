@@ -1,1 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>Wonder Kids - Player</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap" rel="stylesheet"/>
+  <style>
+    /* (your existing CSS, unchanged for brevity) */
+    :root {
+      --color1: #0088ff;
+      --color2: #ff59c7;
+      --bg1: #55b9ff;
+      --bg2: #b868ff;
+      --glass: rgba(255,255,255,0.96);
+      --round: 18px;
+    }
+    html, body { margin:0; padding:0; height:100%; font-family:'Poppins',sans-serif; }
+    body {
+      min-height:100vh; min-width:100vw; position:relative;
+      background: linear-gradient(120deg, var(--bg1), var(--bg2));
+      overflow: hidden; color: #333;
+    }
+    /* ... rest of your CSS unchanged ... */
+    .bubbles { position:fixed; inset:0; pointer-events:none; z-index:0;}
+    .bubbles span {
+      position: absolute; border-radius:50%; background: rgba(255,255,255,.15);
+      animation: bubble 24s linear infinite; pointer-events:none;
+    }
+    @keyframes bubble {
+      0% { transform:translateY(0) scale(0.7);}
+      100%{transform:translateY(-110vh) scale(1);}
+    }
+    .mascot { position:fixed; left:8px; bottom:8px; z-index:9; width:120px; height:120px; }
+    .mascot img { width:120px; height:auto; }
+    .screen { width:100vw; height:100vh; display:none; flex-direction:column; align-items:center; justify-content:center; }
+    .screen.active { display:flex; }
+    .card {
+      background: var(--glass); border-radius: var(--round); box-shadow: 0 4px 32px #0002;
+      margin: 30px auto 0; width: 95vw; max-width: 420px; min-width: 0;
+      display: flex; flex-direction: column; gap: 18px; align-items: center;
+      padding:32px 17px 36px; animation:cardIn 0.8s cubic-bezier(.34,1.56,.64,1) forwards;
+      opacity:0; transform:translateY(60px); border:2.5px solid #6fdcff31;
+    }
+    @keyframes cardIn { to{ opacity:1; transform:translateY(0); } }
+    /* ... rest of your CSS unchanged ... */
+  </style>
+</head>
+<body>
+  <div class="bubbles"></div>
+  <div class="mascot" id="mascot"></div>
+  <div class="screen active" id="joinPanel">
+    <div class="card join-room-form">
+      <h1 style="font-size:2rem;letter-spacing:.01em;text-align:center;margin-bottom:12px;">Join Game</h1>
+      <input id="nicknameInput" maxlength="16" placeholder="Enter nickname" autocomplete="off" />
+      <select id="roomSelect"></select>
+      <button class="join-room-btn" id="joinRoomBtn">Join Room</button>
+    </div>
+  </div>
+  <div class="screen" id="lobbyPanel">
+    <div class="card lobby-card">
+      <div class="lobby-title" id="lobbyRoomName">Lobby</div>
+      <div class="players-list" id="lobbyPlayers"></div>
+      <div class="waiting-msg" id="waitingMsg">Waiting for host to start...</div>
+      <button class="leave-btn" id="leaveRoomBtn">Leave Room</button>
+    </div>
+  </div>
+  <div class="screen" id="countdownPanel">
+    <div class="countdown-overlay">
+      <div class="countdown-msg" id="countdownMsg"></div>
+      <div class="countdown-number" id="countdownNumber"></div>
+    </div>
+  </div>
+  <div class="screen" id="flashPanel">
+    <div class="question-flash-screen">
+      <div id="flashNumber" class="flash-number"></div>
+    </div>
+  </div>
+  <div class="screen" id="answerPanel">
+    <div class="answer-card">
+      <div class="game-timer" id="gameTimer"></div>
+      <h2 id="answerQuestionTitle">Enter Your Answer</h2>
+      <input id="userAnswer" class="answer-input" type="number" autocomplete="off">
+      <button class="check-btn" id="checkAnswerBtn">Check</button>
+    </div>
+  </div>
+  <div class="screen" id="resultPanel">
+    <div class="result-card" id="resultCard"></div>
+  </div>
+  <div class="screen" id="waitingNextPanel">
+    <div class="waiting-next">Waiting for next round…</div>
+  </div>
+  <div class="cute-popup" id="cutePopup" style="display:none;">Settings saved!</div>
+<script>
+// Mascot and bubbles
+function showMascot() {
+  const mascotDiv = document.getElementById('mascot');
+  let img = new Image();
+  img.src = 'nadamascot.png';
+  img.onload = () => mascotDiv.innerHTML = `<img src="nadamascot.png" style="width:120px;height:auto;">`;
+  img.onerror = () => mascotDiv.innerHTML = "🐥";
+}
+showMascot();
+function createBubbles() {
+  const bubbles = document.querySelector('.bubbles');
+  for(let i=0;i<15;i++){
+    let s = document.createElement('span');
+    s.style.width = s.style.height = (Math.random()*68+18)+"px";
+    s.style.left = (Math.random()*98)+"vw";
+    s.style.bottom = (-Math.random()*14)+"vh";
+    s.style.animationDuration = (14+Math.random()*9)+"s";
+    bubbles.appendChild(s);
+  }
+}
+createBubbles();
+
+// Core game state
+const roomKeys = ["A","B","C","D"];
+let playerNickname = "";
+let currentRoom = "";
+let myAnswerSentForQ = {};
+let lastHostGameState = {};
+let myAnswerObj = {};
+let gameTimerInterval = null;
+
+// ---- JOIN FLOW ----
+function getHostRooms() {
+  let all = JSON.parse(localStorage.getItem("wonderRooms")||"{}");
+  let arr = [];
+  for(const k of roomKeys)
+    if(all[k] && all[k].active) arr.push({label:k, name:"Room "+k, ...all[k]});
+  return arr;
+}
+function populateRoomSelect() {
+  const sel = document.getElementById("roomSelect");
+  sel.innerHTML = "";
+  let rooms = getHostRooms();
+  if (!rooms.length) {
+    let opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "No rooms available";
+    sel.appendChild(opt);
+    sel.disabled = true;
+    return;
+  }
+  sel.disabled = false;
+  rooms.forEach(r=>{
+    let opt = document.createElement("option");
+    opt.value = r.label;
+    opt.textContent = r.name;
+    sel.appendChild(opt);
+  });
+}
+populateRoomSelect();
+window.addEventListener("storage", populateRoomSelect);
+
+document.getElementById("joinRoomBtn").onclick = ()=>{
+  playerNickname = document.getElementById("nicknameInput").value.trim().substring(0,16);
+  currentRoom = document.getElementById("roomSelect").value;
+  if(!playerNickname) {
+    showPopup("Please enter your nickname!");
+    document.getElementById("nicknameInput").focus();
+    return;
+  }
+  if(!currentRoom) {
+    showPopup("No room selected.");
+    return;
+  }
+  joinRoom(currentRoom, playerNickname);
+};
+
+function joinRoom(room, nick) {
+  let key = "wonderPlayers_"+room;
+  let players = JSON.parse(localStorage.getItem(key)||"[]");
+  let exists = players.find(p=>p.nick===nick);
+  if(!exists) {
+    players.push({nick, status:"ready"});
+    localStorage.setItem(key, JSON.stringify(players));
+  }
+  document.getElementById("joinPanel").classList.remove("active");
+  document.getElementById("lobbyPanel").classList.add("active");
+  document.getElementById("lobbyRoomName").textContent = "Lobby for Room "+room;
+  renderLobbyPlayers();
+}
+function renderLobbyPlayers() {
+  let key = "wonderPlayers_"+currentRoom;
+  let players = JSON.parse(localStorage.getItem(key)||"[]");
+  let box = document.getElementById("lobbyPlayers");
+  box.innerHTML = "";
+  players.forEach(p=>{
+    let span = document.createElement("span");
+    span.className = "player-chip " + (p.status === "ready" ? "ready" : (p.status === "finished" ? "finished" : "waiting"));
+    span.innerHTML = `${p.nick} ${(p.status==="ready"?"<span style='color:#31b5ff'>✔</span>":p.status==="finished"?"<span style='color:limegreen'>★</span>":"<span style='color:#f99aaf'>…</span>")}`;
+    box.appendChild(span);
+  });
+  document.getElementById("waitingMsg").textContent = "Waiting for host to start…";
+}
+document.getElementById("leaveRoomBtn").onclick = ()=>{
+  let key = "wonderPlayers_"+currentRoom;
+  let players = JSON.parse(localStorage.getItem(key)||"[]");
+  players = players.filter(p=>p.nick!==playerNickname);
+  localStorage.setItem(key, JSON.stringify(players));
+  document.getElementById("lobbyPanel").classList.remove("active");
+  document.getElementById("joinPanel").classList.add("active");
+  playerNickname = ""; currentRoom = "";
+  document.getElementById("nicknameInput").value = "";
+  populateRoomSelect();
+};
+
+window.addEventListener("storage", ()=>{
+  renderLobbyPlayers();
+  updateFromHost();
+});
+
+// ---- GAME SYNC ----
+function updateFromHost() {
+  if(!currentRoom) return;
+  let hostState = JSON.parse(localStorage.getItem("wonderGame_"+currentRoom)||"null");
+  if(!hostState) return;
+  lastHostGameState = hostState;
+  let phase = hostState.phase;
+
+  // PHASE: LOBBY
+  if(phase==="lobby" || !phase) {
+    showPanel("lobbyPanel");
+    return;
+  }
+  // PHASE: COUNTDOWN
+  if(phase==="countdown") {
+    showPanel("countdownPanel");
+    document.getElementById("countdownMsg").textContent = `Q${(hostState.step||0)+1} begins in`;
+    document.getElementById("countdownNumber").textContent = "3";
+    return;
+  }
+  // PHASE: FLASHING
+  if(phase==="flashing" && hostState.questions) {
+    showPanel("flashPanel");
+    let step = hostState.step||0;
+    let flashes = hostState.questions[step].tokens;
+    let idx = Math.floor((Date.now()-hostState.timeStart)/(hostState.speed*1000));
+    if(idx>=flashes.length) idx = flashes.length-1;
+    let display = "";
+    if(idx === 0) display = `<span>${flashes[0]}</span>`;
+    else {
+      let sign = flashes[idx][0], num = flashes[idx].slice(1);
+      display = `<span>${sign} ${num}</span>`;
+    }
+    if(idx===flashes.length-1) display += "<span class='question-mark'>?</span>";
+    document.getElementById("flashNumber").innerHTML = display;
+    return;
+  }
+  // PHASE: QUESTION FULL
+  if(phase==="question_full" && hostState.questions) {
+    showPanel("answerPanel");
+    let tdiv = document.getElementById("gameTimer");
+    if(hostState.timeStart) {
+      let t = (Date.now() - hostState.timeStart)/1000;
+      tdiv.textContent = "⏱ "+t.toFixed(2)+"s";
+    } else tdiv.textContent = "";
+    let step = hostState.step||0;
+    let q = hostState.questions[step];
+    let qStr = "";
+    q.tokens.forEach((n,i)=>{
+      if(i===0) qStr += n;
+      else {
+        let sign = n[0], num = n.slice(1);
+        qStr += " " + sign + " " + num;
+      }
+    });
+    document.getElementById("answerQuestionTitle").innerHTML = `Q${step+1} <span style='font-size:1.13em;color:#1997fd'>${qStr} <span style="color:#f34d66;">?</span></span>`;
+    document.getElementById("userAnswer").disabled = !!myAnswerSentForQ[step];
+    document.getElementById("checkAnswerBtn").disabled = !!myAnswerSentForQ[step];
+    return;
+  }
+  // PHASE: LOCKED (Show leaderboard)
+  if(phase==="locked" && hostState.leaderboard) {
+    showPanel("resultPanel");
+    renderLeaderboard(hostState);
+    return;
+  }
+}
+function showPanel(id) {
+  document.querySelectorAll('.screen').forEach(div=>div.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+document.getElementById("checkAnswerBtn").onclick = ()=>{
+  let val = document.getElementById("userAnswer").value;
+  if(!val) return;
+  let num = Number(val);
+  let step = lastHostGameState && typeof lastHostGameState.step === "number" ? lastHostGameState.step : 0;
+  if(myAnswerSentForQ[step]) return;
+  let timeTaken = 0;
+  if(lastHostGameState && lastHostGameState.timeStart) {
+    timeTaken = (Date.now() - lastHostGameState.timeStart)/1000;
+  }
+  let key = "wonderAnswers_" + currentRoom + "_q" + step;
+  let arr = JSON.parse(localStorage.getItem(key)||"[]");
+  let exists = arr.find(a=>a.nick===playerNickname);
+  if(!exists) {
+    arr.push({nick: playerNickname, ans: num, time: timeTaken, step: step});
+    localStorage.setItem(key, JSON.stringify(arr));
+    myAnswerSentForQ[step] = true;
+    document.getElementById("userAnswer").disabled = true;
+    document.getElementById("checkAnswerBtn").disabled = true;
+  }
+};
+function renderLeaderboard(hostState) {
+  let step = hostState.step || 0;
+  let rows = "";
+  let lb = hostState.leaderboard || [];
+  if(lb.length === 0) {
+    document.getElementById("resultCard").innerHTML = `<h2 style="color:#08d;font-size:2em">Leaderboard</h2>
+      <div style="color:#888;margin:22px 0;">Waiting for results...</div>`;
+    return;
+  }
+  lb.forEach((p,i)=>{
+    rows += `<tr>
+      <td>${i+1}</td>
+      <td>${p.nick}</td>
+      <td>${p.time?Number(p.time).toFixed(2)+"s":"-"}</td>
+      <td>${p.ansok ? "✅":"❌"}</td>
+      <td>${p.points}</td>
+    </tr>`;
+  });
+  document.getElementById("resultCard").innerHTML = `
+    <div class="leaderboard-header" style="font-size:1.5em;color:#48a7fd;margin-bottom:7px;">Q${step+1} Leaderboard</div>
+    <table class="leaderboard-table" style="width:100%;margin:0 auto;">
+      <tr><th>Rank</th><th>Nickname</th><th>Time</th><th>Answer</th><th>Points</th></tr>
+      ${rows}
+    </table>
+  `;
+}
+setInterval(updateFromHost, 150);
+
+function showPopup(msg) {
+  let popup = document.getElementById("cutePopup");
+  popup.textContent = msg;
+  popup.style.display = "";
+  popup.style.opacity = "1";
+  setTimeout(()=>{popup.style.display="none";}, 1450);
+}
+window.onload = function(){
+  renderLobbyPlayers();
+};
+</script>
+</body>
+</html>
 
