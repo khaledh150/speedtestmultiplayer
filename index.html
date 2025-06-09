@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Wonder Kids - Host</title>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap" rel="stylesheet"/>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <style>
     html, body { height: 100%; margin: 0; padding: 0; font-family: 'Poppins', sans-serif; background: #f6faff; min-height: 100vh; min-width: 100vw; color: #3a3c51;}
     body { background: linear-gradient(140deg, #f6faff 0%, #e9f0ff 100%);}
@@ -58,7 +57,6 @@
   <div class="center-card" id="groupSelectionPage">
     <div class="big-header">Group Selection</div>
     <div class="group-row-list" id="roomSelectRows"></div>
-    <input id="hostNickname" maxlength="20" placeholder="Host Nickname" style="margin:14px 0 6px 0;padding:11px 18px;font-size:1.15em;border-radius:15px;border:1.4px solid #b2e6ff;width:93%;">
     <button class="save-btn" id="saveBtn">Save</button>
     <div class="status-msg" id="statusMsg"></div>
   </div>
@@ -90,21 +88,36 @@
     <button class="nextq-btn" id="nextqBtn" style="display:none;">Next Question</button>
   </div>
 <script>
-const supabase = window.supabase.createClient(
-  'https://numyctclqvikpxffdhzg.supabase.co',
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im51bXljdGNscXZpa3B4ZmZkaHpnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDkzNzI0ODUsImV4cCI6MjA2NDk0ODQ4NX0.SkR3jO_Fn9FWYNnTiqLkaV6QKPutKi9ka0hTFO4TV3w'
-);
-
 const roomNames = ['Simple Add. & Sub.','Two Digits','Three Digits','Four Digits'];
 const roomKeys = ['A','B','C','D'];
+let hostRooms = {};
+let currentActiveGroup = null;
 let groupKey = null;
-let groupName = null;
-let hostNickname = "";
-let currentGameId = null;
 let settings = { speed: '0.25', flashes: 3, questions: 5 };
 let allQuestions = [];
-let intervalPlayersPoll = null;
+let gameState = { step: 0, answers: [], leaderboard: [], phase: 'lobby', timer: 0, started: false, round: 0, timeStart: 0 };
+let gameInterval = null;
+let lockAnswers = false;
 
+// ========== MIRROR TO PLAYER =============
+function mirrorToPlayer(phase, data) {
+  localStorage.setItem("wonderLiveGame_" + groupKey, JSON.stringify({phase, ...data}));
+  window.dispatchEvent(new Event('storage'));
+}
+// ========== END MIRROR TO PLAYER ==========
+
+function getDefaultRoom() {
+  return { speed: '0.25', flashes: 3, questions: 5, min: 1, max: 10, active: false, roundId: null, roundStarted: false };
+}
+function loadAllRooms() {
+  let fromStore = localStorage.getItem("wonderRooms");
+  if(fromStore){ try{hostRooms=JSON.parse(fromStore);}catch{hostRooms={};} }
+  else { hostRooms = {}; roomKeys.forEach(r=>hostRooms[r]=getDefaultRoom()); }
+}
+function saveAllRooms() {
+  localStorage.setItem("wonderRooms",JSON.stringify(hostRooms));
+  window.dispatchEvent(new Event('storage'));
+}
 function buildGroupSelectionPage() {
   document.getElementById("groupSelectionPage").style.display = "flex";
   document.getElementById("playersPage").style.display = "none";
@@ -115,101 +128,105 @@ function buildGroupSelectionPage() {
     let row = document.createElement("div");
     row.className = "group-row";
     row.innerHTML = `<span class="group-label">${roomName}</span>
-      <input type="radio" name="activeRoom" class="active-checkbox" id="roomActive${idx}" value="${idx}">
-    `;
+      <input type="checkbox" class="active-checkbox" id="roomActive${idx}" ${hostRooms[roomKeys[idx]].active ? 'checked' : ''}>`;
     rowsDiv.appendChild(row);
+    let chk = row.querySelector(".active-checkbox");
+    chk.onchange = function() { hostRooms[roomKeys[idx]].active = chk.checked; saveAllRooms(); };
   });
 }
-buildGroupSelectionPage();
-
-document.getElementById("saveBtn").onclick = async ()=>{
-  let idx = Array.from(document.querySelectorAll(".active-checkbox")).findIndex(cb => cb.checked);
-  hostNickname = document.getElementById("hostNickname").value.trim();
-  if(idx === -1 || !hostNickname) {
-    let status = document.getElementById("statusMsg");
-    status.innerText = "Select a group and enter host nickname.";
-    status.style.display = "block";
-    setTimeout(()=>{status.style.display="none";},1800);
-    return;
+document.getElementById("saveBtn").onclick = ()=>{
+  roomKeys.forEach((room, idx)=>{
+    if(hostRooms[room].active) {
+      hostRooms[room].roundId = null; hostRooms[room].roundStarted = false;
+      localStorage.removeItem("wonderPlayers_"+room); localStorage.removeItem("wonderGame_"+room);
+      // Mirror room lobby status for player.html
+      localStorage.removeItem("wonderLiveGame_"+room);
+    }
+  });
+  let status = document.getElementById("statusMsg");
+  if(!validateAllRooms()) {
+    status.innerText="Select at least one group."; status.style.display="block";
+    setTimeout(()=>{status.style.display="none";},1800); return;
   }
-  groupKey = roomKeys[idx];
-  groupName = roomNames[idx];
-  // Create new game in Supabase
-  const { data, error } = await supabase.from('games').insert([
-    { group_name: groupName, status: 'lobby', host_nickname: hostNickname }
-  ]).select().single();
-  if(error) {
-    alert("Error creating game: " + error.message);
-    return;
-  }
-  currentGameId = data.id;
-  buildPlayersPage();
-  if(intervalPlayersPoll) clearInterval(intervalPlayersPoll);
-  intervalPlayersPoll = setInterval(loadPlayers, 1500);
+  saveAllRooms();
+  status.innerText="Group(s) selected!"; status.style.display="block";
+  setTimeout(()=>{status.style.display="none";},800);
+  setTimeout(()=>{
+    let firstActiveIdx = roomKeys.findIndex(rk => hostRooms[rk].active);
+    if(firstActiveIdx !== -1) { currentActiveGroup = firstActiveIdx; groupKey = roomKeys[firstActiveIdx]; buildPlayersPage(currentActiveGroup);}
+  }, 480);
 };
-
-async function loadPlayers() {
-  if(!currentGameId) return;
-  const { data, error } = await supabase.from('players').select().eq('game_id', currentGameId);
-  let tbl = document.getElementById("playersListTable");
-  tbl.innerHTML = `<tr><th>No.</th><th>Nickname</th><th>Status</th></tr>`;
-  if(data && Array.isArray(data)) {
-    data.forEach((p,i) => {
-      let row = document.createElement("tr");
-      row.innerHTML = `<td>${i+1}</td><td>${p.nickname}</td><td>${p.status||'-'}</td>`;
-      tbl.appendChild(row);
-    });
-  }
-}
-
-function buildPlayersPage() {
+function validateAllRooms() { return roomKeys.some(r => hostRooms[r].active);}
+function buildPlayersPage(idx) {
   document.getElementById("groupSelectionPage").style.display = "none";
   document.getElementById("playersPage").style.display = "flex";
   document.getElementById("gamePage").style.display = "none";
-  document.getElementById("playersGroupName").innerText = groupName;
+  document.getElementById("playersGroupName").innerText = roomNames[idx];
+  let room = roomKeys[idx];
+  let players = JSON.parse(localStorage.getItem("wonderPlayers_"+room)||"[]");
+  let tbl = document.getElementById("playersListTable");
+  tbl.innerHTML = `<tr><th>No.</th><th>Nickname</th><th>Status</th></tr>`;
+  players.forEach((p,i) => {
+    let row = document.createElement("tr");
+    row.innerHTML = `<td>${i+1}</td><td>${p.nick}</td><td>${p.status||'-'}</td>`;
+    tbl.appendChild(row);
+  });
   document.getElementById("gameSettingsRow").innerHTML = `
     <div class="game-setting-block">Time (s)
-      <select id="gameSpeed">${[...Array(20)].map((_,i)=>((i+1)*0.25).toFixed(2)).map(s=>`<option value="${s}"${s===settings.speed?' selected':''}>${s}</option>`).join('')}</select>
+      <select id="gameSpeed">${[...Array(20)].map((_,i)=>((i+1)*0.25).toFixed(2)).map(s=>`<option value="${s}"${s===(hostRooms[room].speed||'0.25')?' selected':''}>${s}</option>`).join('')}</select>
     </div>
     <div class="game-setting-block">Numbers in Question
-      <input id="gameFlashes" type="number" min="1" max="20" value="${settings.flashes}">
+      <input id="gameFlashes" type="number" min="1" max="20" value="${hostRooms[room].flashes||3}">
     </div>
     <div class="game-setting-block">Questions Per Round
-      <input id="gameQuestions" type="number" min="1" max="100" value="${settings.questions}">
+      <input id="gameQuestions" type="number" min="1" max="100" value="${hostRooms[room].questions||5}">
     </div>
   `;
-  document.getElementById("gameSpeed").onchange = (e)=>{ settings.speed = e.target.value; };
-  document.getElementById("gameFlashes").oninput = (e)=>{ settings.flashes = Math.max(1, Math.min(20, Number(e.target.value))); };
-  document.getElementById("gameQuestions").oninput = (e)=>{ settings.questions = Math.max(1, Math.min(100, Number(e.target.value))); };
-  loadPlayers();
+  document.getElementById("gameSpeed").onchange = (e)=>{ hostRooms[room].speed = e.target.value; saveAllRooms(); };
+  document.getElementById("gameFlashes").oninput = (e)=>{
+    let val = Math.max(1, Math.min(20, Number(e.target.value)));
+    hostRooms[room].flashes = val; saveAllRooms();
+  };
+  document.getElementById("gameQuestions").oninput = (e)=>{
+    let val = Math.max(1, Math.min(100, Number(e.target.value)));
+    hostRooms[room].questions = val; saveAllRooms();
+  };
 }
+setInterval(()=>{
+  if(document.getElementById("playersPage").style.display!=="none" && currentActiveGroup!==null) buildPlayersPage(currentActiveGroup);
+}, 1200);
 
-document.getElementById("gameStartBtn").onclick = async ()=>{
-  if(!currentGameId) return;
-  allQuestions = generateQuestionsForGroup(groupKey, Number(settings.flashes), Number(settings.questions));
-  // Insert questions to Supabase
-  let questionsForDB = allQuestions.map((q,i)=>({
-    game_id: currentGameId,
-    question_no: i+1,
-    question_text: q.display,
-    tokens: JSON.stringify(q.tokens),
-    answer: q.ans
-  }));
-  const { error } = await supabase.from('questions').insert(questionsForDB);
-  if(error) { alert("Failed to insert questions: " + error.message); return; }
-  // Update game status to 'playing'
-  await supabase.from('games').update({ status: 'playing' }).eq('id', currentGameId);
+document.getElementById("gameStartBtn").onclick = ()=>{
+  if(currentActiveGroup===null) return;
+  let players = JSON.parse(localStorage.getItem("wonderPlayers_"+roomKeys[currentActiveGroup])||"[]");
+  if(players.length === 0) return;
+  settings = {
+    speed: hostRooms[roomKeys[currentActiveGroup]].speed||'0.25',
+    flashes: hostRooms[roomKeys[currentActiveGroup]].flashes||3,
+    questions: hostRooms[roomKeys[currentActiveGroup]].questions||5
+  };
+  groupKey = roomKeys[currentActiveGroup];
+  allQuestions = generateQuestionsForGroup(currentActiveGroup, settings.flashes, settings.questions);
+  gameState = { step: 0, answers: [], leaderboard: [], phase: 'countdown', timer: 0, started: false, round: 0, timeStart: 0 };
+  lockAnswers = false;
+  saveGameState();
   buildGamePage();
-  // TODO: Implement game flow for Q1 (step, timer, flashing, etc) in DB for player.html to poll
-  // This is just the first step. Next: you will set/update a "game_state" table for sync.
+  // --- MIRROR to player: show countdown for Q1 ---
+  mirrorToPlayer("countdown", {
+    step: 0,
+    question: allQuestions[0]?.display || "",
+    timer: 0,
+    countdownText: `Q1 begins in`,
+    countdownNumber: 3
+  });
+  startCountdown();
 };
-
 function buildGamePage() {
   document.getElementById("groupSelectionPage").style.display = "none";
   document.getElementById("playersPage").style.display = "none";
   document.getElementById("gamePage").style.display = "flex";
-  document.getElementById("gameGroupName").innerText = groupName;
-  document.getElementById("gameQuestionIndex").innerText = `Q1`;
+  document.getElementById("gameGroupName").innerText = roomNames[currentActiveGroup];
+  document.getElementById("gameQuestionIndex").innerText = `Q${gameState.step+1}`;
   document.getElementById("gameTimer").innerText = "0.00s";
   document.getElementById("gameFlash").innerText = "";
   document.getElementById("gameFlash").style.display = "";
@@ -218,16 +235,181 @@ function buildGamePage() {
   document.getElementById("lockBtn").style.display = "none";
   document.getElementById("nextqBtn").style.display = "none";
 }
-
+function saveGameState() {
+  localStorage.setItem("wonderGame_"+groupKey, JSON.stringify({
+    step: gameState.step, questions: allQuestions, phase: gameState.phase, timer: gameState.timer, started: gameState.started,
+    answers: gameState.answers, leaderboard: gameState.leaderboard, lock: lockAnswers
+  }));
+  window.dispatchEvent(new Event('storage'));
+}
+function loadGameState() {
+  let d = localStorage.getItem("wonderGame_"+groupKey);
+  if(d) {
+    let j = JSON.parse(d);
+    gameState.step = j.step; gameState.phase = j.phase;
+    gameState.timer = j.timer; gameState.started = j.started;
+    gameState.answers = j.answers||[]; gameState.leaderboard = j.leaderboard||[];
+    lockAnswers = j.lock||false;
+    allQuestions = j.questions||[];
+  }
+}
+function startCountdown() {
+  let n = 3;
+  document.getElementById("gameFlash").innerText = `Q${gameState.step+1} begins in`;
+  document.getElementById("gameQuestionBig").style.display = "none";
+  // --- Mirror phase: countdown ---
+  mirrorToPlayer("countdown", {
+    step: gameState.step,
+    question: allQuestions[gameState.step]?.display || "",
+    timer: 0,
+    countdownText: `Q${gameState.step+1} begins in`,
+    countdownNumber: n
+  });
+  let countdown = setInterval(()=>{
+    document.getElementById("gameFlash").innerText = `${n}`;
+    // --- Mirror update: countdown number ---
+    mirrorToPlayer("countdown", {
+      step: gameState.step,
+      question: allQuestions[gameState.step]?.display || "",
+      timer: 0,
+      countdownText: "",
+      countdownNumber: n
+    });
+    n--;
+    if(n<0) {
+      clearInterval(countdown);
+      gameState.phase = 'flashing';
+      gameState.started = true;
+      gameState.timeStart = Date.now();
+      gameState.timer = 0;
+      saveGameState();
+      // --- Mirror: start flashing phase ---
+      mirrorToPlayer("flashing", {
+        step: gameState.step,
+        question: allQuestions[gameState.step]?.display || "",
+        tokens: allQuestions[gameState.step]?.tokens || [],
+        tokenIndex: 0,
+        timer: 0,
+        timeStart: gameState.timeStart
+      });
+      startFlashing();
+    }
+  }, 820);
+}
+function startFlashing() {
+  let flashes = allQuestions[gameState.step].tokens;
+  let idx = 0;
+  let showNext = ()=>{
+    // --- Mirror: update current flashing token ---
+    mirrorToPlayer("flashing", {
+      step: gameState.step,
+      question: allQuestions[gameState.step]?.display || "",
+      tokens: flashes,
+      tokenIndex: idx,
+      timer: ((Date.now()-gameState.timeStart)/1000),
+      timeStart: gameState.timeStart
+    });
+    if(idx === 0) {
+      document.getElementById("gameFlash").innerHTML = `<span style="color:#0b7cf7;font-size:2.2rem;">${flashes[0]}</span>`;
+    } else {
+      let sign = flashes[idx][0], num = flashes[idx].slice(1);
+      document.getElementById("gameFlash").innerHTML = `<span style="color:#0b7cf7;font-size:2.1rem;">${sign} ${num}</span>`;
+    }
+    document.getElementById("gameQuestionIndex").innerText = `Q${gameState.step+1}`;
+    document.getElementById("gameTimer").innerText = ((Date.now()-gameState.timeStart)/1000).toFixed(2)+"s";
+    idx++;
+    if(idx<flashes.length) setTimeout(showNext, settings.speed*1000);
+    else setTimeout(()=>{
+      // --- Mirror: finished flashing, show full question ---
+      mirrorToPlayer("question_full", {
+        step: gameState.step,
+        question: allQuestions[gameState.step]?.display || "",
+        tokens: flashes,
+        timer: ((Date.now()-gameState.timeStart)/1000),
+        timeStart: gameState.timeStart
+      });
+      showFullQuestion();
+    }, settings.speed*1000);
+  };
+  showNext();
+}
+function showFullQuestion() {
+  document.getElementById("gameFlash").style.display = "none";
+  let q = allQuestions[gameState.step];
+  document.getElementById("gameQuestionBig").style.display = "";
+  document.getElementById("gameQuestionBig").innerHTML =
+    q.display + ' <span style="color:#f34d66;">?</span>';
+  document.getElementById("lockBtn").style.display = "";
+  document.getElementById("lockBtn").onclick = ()=>{
+    lockAnswers = true;
+    gameState.phase = 'locked';
+    saveGameState();
+    // --- Mirror: lock phase, show leaderboard ---
+    mirrorToPlayer("locked", {
+      step: gameState.step,
+      leaderboard: gameState.leaderboard // (you can send full leaderboard here)
+    });
+    showLeaderboard();
+  };
+  // --- Mirror: "question_full" (waiting for answer) ---
+  mirrorToPlayer("question_full", {
+    step: gameState.step,
+    question: q.display,
+    tokens: q.tokens,
+    timer: ((Date.now()-gameState.timeStart)/1000),
+    timeStart: gameState.timeStart
+  });
+}
+function showLeaderboard() {
+  document.getElementById("leaderboardBox").style.display = "";
+  let answers = gameState.answers || [];
+  let q = allQuestions[gameState.step];
+  let players = JSON.parse(localStorage.getItem("wonderPlayers_"+groupKey)||"[]");
+  let rows = answers.map((a,i)=>{
+    let ansok = (a.ans === q.ans);
+    let points = ansok ? (11-(i+1)) : 0;
+    return `<tr>
+      <td>${i+1}</td>
+      <td>${a.nick}</td>
+      <td>${a.time ? a.time.toFixed(2)+'s':'-'}</td>
+      <td class="${ansok?'right':'wrong'}">${ansok?'✅':'✗'}</td>
+      <td class="points">${points}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById("leaderboardBox").innerHTML = `
+    <div class="leaderboard-header">Q${gameState.step+1} Leaderboard</div>
+    <table class="leaderboard-table">
+      <tr><th>Rank</th><th>Nickname</th><th>Time</th><th>Answer</th><th>Points</th></tr>
+      ${rows}
+    </table>
+  `;
+  document.getElementById("nextqBtn").style.display = (gameState.step+1 < settings.questions) ? "" : "none";
+  document.getElementById("nextqBtn").onclick = ()=>{
+    gameState.step++;
+    lockAnswers = false;
+    gameState.phase = 'countdown';
+    gameState.answers = [];
+    saveGameState();
+    buildGamePage();
+    // --- Mirror: restart countdown for next Q ---
+    mirrorToPlayer("countdown", {
+      step: gameState.step,
+      question: allQuestions[gameState.step]?.display || "",
+      timer: 0,
+      countdownText: `Q${gameState.step+1} begins in`,
+      countdownNumber: 3
+    });
+    startCountdown();
+  };
+}
 function generateQuestionsForGroup(idx, flashes, count) {
   let arr = [];
-  let groupIdx = roomKeys.indexOf(idx); // idx is A/B/C/D
   for(let i=0;i<count;i++){
     let tokens=[], display="", ans=0;
-    if(groupIdx===0){ let q = randomChapter17(flashes)[0]; tokens = parseQuestionTokens(q.q); display = q.q; ans = q.a; }
-    else if(groupIdx===1){ let q = randomChapter18(flashes)[0]; tokens = parseQuestionTokens(q.q); display = q.q; ans = q.a; }
-    else if(groupIdx===2){ let q = randomChapter19(flashes)[0]; tokens = parseQuestionTokens(q.q); display = q.q; ans = q.a; }
-    else if(groupIdx===3){ let q = randomChapter20(flashes)[0]; tokens = parseQuestionTokens(q.q); display = q.q; ans = q.a; }
+    if(idx===0){ let q = randomChapter17(flashes)[0]; tokens = parseQuestionTokens(q.q); display = q.q; ans = q.a; }
+    else if(idx===1){ let q = randomChapter18(flashes)[0]; tokens = parseQuestionTokens(q.q); display = q.q; ans = q.a; }
+    else if(idx===2){ let q = randomChapter19(flashes)[0]; tokens = parseQuestionTokens(q.q); display = q.q; ans = q.a; }
+    else if(idx===3){ let q = randomChapter20(flashes)[0]; tokens = parseQuestionTokens(q.q); display = q.q; ans = q.a; }
     arr.push({tokens, display, ans});
   }
   return arr;
@@ -274,7 +456,26 @@ function randomChapter20(numQuestions=1) {
     let D=op2==="+"?step1+C:step1-C;if(D>=1000&&D<=9999){questions.push({q:`${A} ${op1} ${B} ${op2} ${C}`,a:D.toString()});}
   }return questions;
 }
+setInterval(()=>{
+  if(document.getElementById("gamePage").style.display!=="none" && groupKey) {
+    loadGameState();
+    document.getElementById("gameTimer").innerText = ((Date.now()-gameState.timeStart)/1000).toFixed(2)+"s";
+    if(gameState.phase==='locked') showLeaderboard();
+  }
+}, 160);
+(function(){
+  if(!sessionStorage.getItem("hostAuth")){
+    let pw = prompt("Host password:");
+    if(pw!=="2223332"){
+      alert("Wrong password!");
+      location.reload();
+      return;
+    }
+    sessionStorage.setItem("hostAuth","ok");
+  }
+  loadAllRooms();
+  buildGroupSelectionPage();
+})();
 </script>
 </body>
 </html>
-
